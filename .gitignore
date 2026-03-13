@@ -1,0 +1,22 @@
+# macOS 시스템 파일
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 에디터 설정 파일
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 로그 파일
+*.log
+
+# 빌드 결과물 (나중에 빌드 도구를 사용할 경우 대비)
+dist/
+build/
+node_modules/
+
+# 환경 변수 파일 (비밀번호 등 민감한 정보)
+.env
+.env.local
