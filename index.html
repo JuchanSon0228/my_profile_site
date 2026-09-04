@@ -30,13 +30,7 @@
     body { font-family: 'Crimson Pro','Noto Serif KR',Georgia,serif; background-color:#0f1b2d; color:#e8e0d0; }
 
     .greek-bg { position:relative; overflow:hidden; }
-    .greek-bg::before {
-      content:'α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ τ υ φ χ ψ ω';
-      position:absolute; top:0; left:0; width:100%; height:100%;
-      font-size:5rem; line-height:1.4; word-spacing:2rem;
-      color:rgba(212,168,83,0.04); pointer-events:none;
-      white-space:pre-wrap; letter-spacing:1.5rem; user-select:none; z-index:0;
-    }
+    #greekField { position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none; }
 
     .nav-link { position:relative; transition:color 0.2s; }
     .nav-link::after { content:''; position:absolute; bottom:-2px; left:0; width:0; height:1px; background:#d4a853; transition:width 0.3s; }
@@ -100,8 +94,9 @@
 
   <!-- Hero -->
   <section id="hero" class="greek-bg min-h-screen flex flex-col justify-center items-center text-center px-6 pt-20">
+    <canvas id="greekField" aria-hidden="true"></canvas>
+    <p class="absolute top-[9%] left-1/2 -translate-x-1/2 z-20 w-full px-6 text-center italic text-gold-400 text-[24px] md:text-[34px] tracking-[0.25em] opacity-70" style="font-family:'Times New Roman',Times,serif;">ἐν ἀρχῇ ἦν ὁ λόγος</p>
     <div class="relative z-10 max-w-3xl mx-auto">
-      <p class="italic text-gold-400 text-[26px] md:text-[38px] tracking-[0.25em] mb-8 opacity-70" style="font-family:'Times New Roman',Times,serif;">ἐν ἀρχῇ ἦν ὁ λόγος</p>
       <h1 class="text-[62px] md:text-[98px] font-normal tracking-wide mb-3" style="font-family:'Cormorant Garamond',Georgia,serif;">Juchan Son</h1>
       <h2 class="kr text-[26px] md:text-[26px] text-gold-400 tracking-[0.35em] font-light mb-8">손주찬</h2>
       <div class="gold-line"></div>
@@ -414,6 +409,79 @@
       });
     }, { rootMargin: '-40% 0px -40% 0px' });
     sections.forEach(s => navObserver.observe(s));
+
+    // Greek-letter cloud: irregular 3D field that rotates while each letter drifts in depth (front/back)
+    (function(){
+      const canvas = document.getElementById('greekField');
+      const hero = document.getElementById('hero');
+      if (!canvas || !hero) return;
+      const ctx = canvas.getContext('2d');
+      const chars = ('αβγδεζηθικλμνξοπρστυφχψω' + 'αβγδεζηθικλμνξοπρστυφχψω' + 'ΑΒΓΔΕΖΗΘΛΞΠΣΦΨΩ').split('');
+      const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let W = 0, H = 0, dpr = 1, cx = 0, cy = 0, R = 0, pts = [];
+      const rand = (a, b) => a + Math.random() * (b - a);
+      function build() {
+        const n = Math.max(220, Math.min(460, Math.round(Math.min(W, H) * 1.15)));
+        pts = [];
+        for (let i = 0; i < n; i++) {
+          // uniform random direction on the unit sphere -> irregular (not a lattice)
+          const u = Math.random() * 2 - 1;
+          const a = Math.random() * Math.PI * 2;
+          const s = Math.sqrt(1 - u * u);
+          pts.push({
+            dx: s * Math.cos(a), dy: u, dz: s * Math.sin(a),      // unit direction
+            r0: rand(0.5, 1.0),                                    // base radius -> irregular depth/volume
+            oAmp: rand(0.10, 0.26), oSpd: rand(0.20, 0.65), oPh: Math.random() * Math.PI * 2, // per-letter depth drift
+            zAmp: rand(0.08, 0.20), zSpd: rand(0.30, 0.80), zPh: Math.random() * Math.PI * 2, // per-letter zoom in/out
+            ch: chars[(Math.random() * chars.length) | 0],
+            gold: Math.random() < 0.7
+          });
+        }
+      }
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        W = hero.clientWidth; H = hero.clientHeight;
+        canvas.width = W * dpr; canvas.height = H * dpr;
+        canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cx = W / 2; cy = H / 2;
+        R = Math.min(W, H) * 0.32;
+        build();
+      }
+      const TILT = 0.30, P = 2.4, WIDE = 1.38;
+      function render(time) {
+        const ay = reduce ? 0.6 : time * 0.11;
+        const ax = TILT + (reduce ? 0 : Math.sin(time * 0.07) * 0.09);
+        const cY = Math.cos(ay), sY = Math.sin(ay), cX = Math.cos(ax), sX = Math.sin(ax);
+        const proj = [];
+        for (const p of pts) {
+          const r = reduce ? p.r0 : p.r0 + Math.sin(time * p.oSpd + p.oPh) * p.oAmp;  // depth drift (front/back)
+          const X = p.dx * r, Y = p.dy * r, Z = p.dz * r;
+          const x1 = X * cY - Z * sY, z1 = X * sY + Z * cY, y1 = Y;   // rotate Y
+          const y2 = y1 * cX - z1 * sX, z2 = y1 * sX + z1 * cX, x2 = x1; // rotate X
+          const scale = P / (P - z2);
+          const zf = reduce ? 1 : (1 + Math.sin(time * p.zSpd + p.zPh) * p.zAmp);  // per-letter zoom in/out
+          proj.push({ sx: cx + x2 * R * scale * WIDE, sy: cy + y2 * R * scale, z2: z2, zf: zf, ch: p.ch, gold: p.gold });
+        }
+        proj.sort((a, b) => a.z2 - b.z2);
+        ctx.clearRect(0, 0, W, H);
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        const baseSize = R * 0.062;
+        for (const q of proj) {
+          let depth = (q.z2 / 1.15 + 1) / 2;
+          depth = depth < 0 ? 0 : depth > 1 ? 1 : depth;
+          const o = 0.05 + depth * 0.45;
+          const fs = baseSize * (0.55 + depth * 0.95) * q.zf;
+          ctx.font = fs + "px 'Times New Roman','Noto Serif KR',serif";
+          ctx.fillStyle = (q.gold ? 'rgba(212,168,83,' : 'rgba(232,224,208,') + o.toFixed(3) + ')';
+          ctx.fillText(q.ch, q.sx, q.sy);
+        }
+      }
+      function frame(now) { render(now / 1000); requestAnimationFrame(frame); }
+      resize();
+      window.addEventListener('resize', resize);
+      if (reduce) { render(0); } else { requestAnimationFrame(frame); }
+    })();
 
     // Copy email to clipboard, then show a brief toast
     const copyBtn = document.getElementById('copyEmailBtn');
